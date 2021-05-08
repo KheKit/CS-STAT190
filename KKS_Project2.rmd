@@ -1,0 +1,373 @@
+---
+title: "Diamonds by Khe Kit Shum"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: rows
+    vertical_layout: fill
+---
+
+```{r setup, include=FALSE}
+library(flexdashboard)
+library(knitr)
+library(DT)
+library(rpivotTable)
+library(ggplot2)
+library(plotly)
+library(dplyr)
+library(openintro)
+library(highcharter)
+library(tidyr)
+library(rpart)
+library(rpart.plot)
+library(ggplot2)
+library(pROC)
+library(RColorBrewer)
+library(randomForest)
+library(boot)
+```
+
+```{r}
+diamonds <- read.csv("D:/Drake Spring 2021/Drake CS190/Project2/diamonds.csv", 
+                     header = TRUE, stringsAsFactors = TRUE)
+
+diamonds$X <- NULL
+diamonds$cut <- factor(diamonds$cut,levels = c("Fair", "Good", "Very Good", "Premium", 
+                                                       "Ideal"))
+diamonds$clarity <- factor(diamonds$clarity,levels = c("I1", "SI2", "SI1", "VS2", 
+                                                       "VS1", "VVS2", "VVS1", "IF"))
+
+diamonds$price_bin <- ifelse(diamonds$price>=3000, "High", "Low")
+diamonds$price_bin <- as.factor(diamonds$price_bin)
+```
+
+```{r}
+diamonds$price_bin <- ifelse(diamonds$price>=3000, "High", "Low")
+diamonds$price_bin <- as.factor(diamonds$price_bin)
+
+RNGkind(sample.kind="default")
+set.seed(741852)
+
+# Initializes training and testing set for modeling
+train.idx <- sample(x=1:nrow(diamonds),size=floor(.8*nrow(diamonds)))
+train.df <- diamonds[train.idx,]
+test.df <- diamonds[-train.idx,]
+
+# temporary forest
+tempforest <- randomForest(price_bin ~ clarity+color+carat+cut+depth+
+                             x+y+z+table,
+                           data = train.df,
+                           ntree = 1000,
+                           mtry = 4)
+
+# there are 9 x's variables
+mtry <- seq(1, 9, by = 2)
+
+# make from for OOB error, m value
+keeps <- data.frame(m = rep(NA, length(mtry)),
+                    OOB_err_rate = rep(NA, length(mtry)))
+
+for (idx in 1:length(mtry)){
+  tempforest <- randomForest(price_bin ~ clarity+color+carat+cut+depth+
+                               x+y+z+table,
+                             data = train.df, 
+                             ntree = 1000, 
+                             mtry = mtry[idx])
+  # record this iteration's m value in idx'th row
+  keeps[idx, "m"] <- mtry[idx]
+  # record this iteration's oob error in idx'th row
+  keeps[idx,"OOB_err_rate"] <- mean(predict(tempforest)!= train.df$price_bin)
+}
+```
+
+```{r}
+dforest_final <- randomForest(price_bin ~ clarity+color+carat+cut+depth+
+                                x+y+z+table,
+                            data = train.df,
+                            ntree = 1000,
+                            mtry = 3,
+                            importance = TRUE)
+```
+
+```{r}
+pi_hat <- predict(dforest_final, test.df, type = "prob")[,"High"]
+rocCurve <- roc(response = test.df$price_bin,
+                predictor = pi_hat,
+                levels = c("Low", "High"))
+```
+
+```{r}
+m1 <- lm(price ~ clarity+color+cut+depth, data = diamonds)
+
+m2 <- glm(price ~ clarity+color+cut+depth,
+           data = diamonds, family = Gamma(link = "log"))
+
+m3 <- glm(price ~ clarity+color+cut+depth,
+           data = diamonds, family = inverse.gaussian(link = "log"))
+
+m4 <- glm(price ~ clarity+color+cut+depth,
+          data = diamonds, family = gaussian(link = "log"))
+```
+
+Diamonds Data 
+======================================
+
+Row
+--------------------------------------
+
+### Diamonds Analysis
+
+```{r}
+valueBox(paste("Price"),
+         color = "green")
+```
+
+### Diamonds in dataset
+
+```{r}
+valueBox(length(diamonds$price),
+         icon = "fa-diamond")
+```
+
+### Average Price
+
+```{r}
+valueBox(round(mean(diamonds$price), digits = 3),
+         icon = 'fa-diamond')
+```
+
+Row
+--------------------------------------
+
+### Low Diamonds Price
+
+```{r}
+valueBox(sum(diamonds$price_bin == "Low"),
+         icon = 'fa-diamond')
+```
+
+### High Diamonds Price
+
+```{r}
+valueBox(sum(diamonds$price_bin == "High"),
+         icon = 'fa-diamond')
+```
+
+Row
+---------------------------------------
+
+```{r picture, echo = F, fig.cap = "Color of Diamonds"}
+knitr::include_graphics("D:/Drake Spring 2021/Drake CS190/Project2/color.png")
+```
+```{r, fig.cap = "Clarity of Diamonds"}
+include_graphics("D:/Drake Spring 2021/Drake CS190/Project2/clarity.png")
+```
+
+Graphs 1
+====================================
+
+Row
+------------------------------------
+
+### Histogram of Price
+
+```{r}
+ggplot(data = diamonds,aes(x = price)) +
+  geom_histogram(stat="bin", binwidth=500, fill="steelblue") +
+  ggtitle("Price of Diamonds") +
+  labs(x = "Price $ USD", y = "Frequency") +
+  scale_colour_grey("Result") +
+  theme_minimal()
+```
+
+### Histogram of Price with Cut
+
+```{r}
+ggplot(data = diamonds,aes(x = price, fill=cut)) +
+  geom_histogram(stat="bin", binwidth=500) +
+  ggtitle("Price of Diamonds") +
+  labs(x = "Price $ USD", y = "Frequency") +
+  scale_colour_grey("Result") +
+  theme_minimal()
+```
+
+### Histogram of Weight in Diamonds
+
+```{r}
+ggplot(data = diamonds, aes(x = carat)) +
+  geom_histogram(stat="bin", binwidth=0.18, fill="steelblue") +
+  ggtitle("Weight of Diamonds") +
+  labs(x = "Carat", y = "Frequency") +
+  scale_colour_grey("Result") +
+  theme_minimal()
+```
+
+Row
+------------------------------------
+
+### Bar graph of Diamonds in Cut
+
+```{r}
+ggplot(data = diamonds, aes(x = cut)) +
+  geom_bar(fill="steelblue") +
+  geom_text(stat="count", aes(label=..count..), vjust=1.6, color="white", size=3.5) +
+  ggtitle("Quality of Diamonds") +
+  labs(x = "Cut", y = "Frequency") +
+  scale_colour_grey("Result") +
+  theme_minimal()
+```
+
+### Bar graph of Diamonds in Clarity
+
+```{r}
+ggplot(data = diamonds, aes(x = clarity)) +
+  geom_bar(fill="steelblue") +
+  geom_text(stat="count", aes(label=..count..), vjust=1.6, color="white", size=3.5) +
+  ggtitle("Clarity of Diamonds") +
+  labs(x = "Clarity", y = "Frequency") +
+  scale_colour_grey("Result") +
+  theme_minimal()
+```
+
+### Bar graph of Diamonds in Color
+
+```{r}
+ggplot(data = diamonds, aes(x = color)) +
+  geom_bar(fill="steelblue") +
+  geom_text(stat="count", aes(label=..count..), vjust=1.6, color="white", size=3.5) +
+  ggtitle("Colors of Diamonds") +
+  labs(x = "Color", y = "Frequency") +
+  scale_colour_grey("Result") +
+  theme_minimal()
+```
+
+Graphs 2
+=====================================
+
+Row
+------------------------------------
+
+### Scatter Plot of Carat vs Price and Clarity
+
+```{r}
+ggplot(data = diamonds) +
+  geom_point(aes(x = carat, y = price, col = clarity)) +
+  ggtitle("Carat Vs Price") +
+  labs(x = "Carat", y = "Price") +
+  scale_color_brewer("Clarity", palette = "Dark2") +
+  theme_minimal()
+```
+
+### Scatter plot for Carat vs Price and Color
+
+```{r}
+ggplot(data = diamonds) +
+  geom_point(aes(x = carat, y = price, col = color)) +
+  ggtitle("Carat Vs Price") +
+  labs(x = "Carat", y = "Price") +
+  scale_color_brewer("Color", palette = "Dark2") +
+  theme_minimal()
+```
+
+### Violin plot of Price against Color with category Clarity
+
+```{r}
+ggplot(data = diamonds, aes(x=color, y=price)) + 
+  geom_violin() + 
+  scale_y_log10() + 
+  labs(x = "Color", y = "Price in (log)") +
+  facet_wrap(~ clarity) +
+  theme_minimal()
+```
+
+Data Table
+===============================================
+
+```{r}
+datatable(diamonds,
+          caption = "Diamonds",
+          rownames = T,
+          filter = "top",
+          options = list(pageLength = 25))
+```
+
+Random Forest {data-orientation=columns}
+===========================================
+
+Column
+------------------------------------------
+
+Summary
+
+* I did a temporary forest using 4 mtry with 1000 trees.
+* Decided on 3 mtry after running a for loop to find the optimal length
+
+Row
+------------------------------------
+
+```{r}
+qplot(m, OOB_err_rate, geom = c("line", "point"), data = keeps) +
+  theme_bw() + labs(x = "m (mtry) value", y = "OOB error rate") +
+  scale_x_continuous(breaks = c(1:10))
+```
+
+Row
+------------------------------------
+
+```{r}
+plot(rocCurve,print.thres = TRUE, print.auc=TRUE)
+```
+
+Row
+------------------------------------
+
+```{r}
+varImpPlot(dforest_final, type = 1)
+```
+
+Model {data-orientation=columns}
+==========================================
+
+Column
+-----------------------------------------
+```{r}
+summary(m3)
+```
+
+Row
+-----------------------------------
+
+```{r}
+glm.diag.plots(m3, glm.diag(m3))
+```
+
+Row
+----------------------------------
+
+```{r}
+anova(m3)
+```
+
+Column
+------------------------------------------
+
+```{r}
+lr <- -2*(m3$deviance- m3$null.deviance )
+df <- m3$df.null - m3$df.residual
+1-pchisq(lr,df)
+```
+
+Column
+-------------------------------------------
+
+```{r}
+exp(coef(m3))
+```
+
+Column
+-------------------------------------------------
+
+```{r}
+1-pchisq(m3$deviance, df=m3$df.residual)
+```
+
+
